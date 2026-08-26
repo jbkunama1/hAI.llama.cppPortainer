@@ -1,0 +1,54 @@
+services:
+  llamacpp:
+    image: ${LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server}
+    container_name: llamacpp
+    restart: unless-stopped
+    ports:
+      - "${LLAMA_PORT:-8080}:8080"
+    environment:
+      LLAMA_ARG_HOST: 0.0.0.0
+      LLAMA_ARG_PORT: "8080"
+      LLAMA_ARG_MODEL: /models/${ACTIVE_LINK:-current.gguf}
+      LLAMA_ARG_CTX_SIZE: "${LLAMA_CTX_SIZE:-8192}"
+      LLAMA_ARG_N_GPU_LAYERS: "${LLAMA_N_GPU_LAYERS:-0}"
+      LLAMA_ARG_PARALLEL: "${LLAMA_PARALLEL:-2}"
+      LLAMA_ARG_CONT_BATCHING: "${LLAMA_CONT_BATCHING:-on}"
+      LLAMA_ARG_FLASH_ATTN: "${LLAMA_FLASH_ATTN:-auto}"
+      LLAMA_ARG_API_KEY: "${LLAMA_API_KEY:-}"
+    volumes:
+      - llama-models:/models
+      - llama-config:/config:ro
+    networks:
+      - llamanet
+
+  admin:
+    image: ${ADMIN_IMAGE:-ghcr.io/jbkunama1/hai.llama.cppportainer:latest}
+    container_name: llamacpp-admin
+    restart: unless-stopped
+    ports:
+      - "${ADMIN_PORT:-8066}:8066"
+    environment:
+      ADMIN_API_KEY: "${ADMIN_API_KEY:-}"
+      LLAMA_API_KEY: "${LLAMA_API_KEY:-}"
+      LLAMA_BASE_URL: "http://llamacpp:8080"
+      MODELS_DIR: /models
+      CONFIG_FILE: /config/models.json
+      LLAMA_CONTAINER_NAME: "${LLAMA_CONTAINER_NAME:-llamacpp}"
+      RESTART_VIA_DOCKER: "${RESTART_VIA_DOCKER:-true}"
+      PORT: "8066"
+    volumes:
+      - llama-models:/models
+      - llama-config:/config
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - llamacpp
+    networks:
+      - llamanet
+
+networks:
+  llamanet:
+    name: ${DOCKER_NETWORK:-llamanet}
+
+volumes:
+  llama-models:
+  llama-config:

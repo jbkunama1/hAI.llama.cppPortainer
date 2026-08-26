@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>llama.cpp Admin</title>
+<style>
+:root{--bg:#171614;--surf:#1c1b19;--surf2:#22211f;--border:#393836;--txt:#cdccca;--muted:#797876;--acc:#4f98a3;--ok:#6daa45;--err:#dd6974}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--txt);font-size:15px;line-height:1.5}
+header{display:flex;gap:12px;align-items:center;padding:12px 20px;background:var(--surf);border-bottom:1px solid var(--border);flex-wrap:wrap}
+header h1{font-size:17px;margin-right:auto}
+header input{background:var(--surf2);border:1px solid var(--border);color:var(--txt);padding:6px 10px;border-radius:6px;min-width:220px}
+button{background:var(--acc);color:#111;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:13px}
+button.ghost{background:transparent;border:1px solid var(--border);color:var(--txt)}
+button.danger{background:var(--err)}
+nav{display:flex;gap:4px;padding:8px 20px;background:var(--surf);border-bottom:1px solid var(--border)}
+nav button{background:transparent;color:var(--muted);padding:6px 14px}
+nav button.on{color:var(--txt);border-bottom:2px solid var(--acc);border-radius:0}
+main{padding:20px;max-width:1100px;margin:0 auto}
+.card{background:var(--surf);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px}
+.card h2{font-size:15px;margin-bottom:10px;color:var(--acc)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--border);vertical-align:top}
+th{color:var(--muted);font-weight:600}
+.badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;background:var(--surf2);border:1px solid var(--border)}
+.badge.ok{color:var(--ok);border-color:var(--ok)}
+.badge.err{color:var(--err);border-color:var(--err)}
+pre{background:var(--surf2);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:12px;overflow:auto;max-height:280px;white-space:pre-wrap}
+input,textarea{background:var(--surf2);border:1px solid var(--border);color:var(--txt);padding:7px 10px;border-radius:6px;font-size:13px;width:100%}
+.row{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.bar{height:8px;background:var(--surf2);border-radius:99px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;background:var(--acc);transition:width .3s}
+.muted{color:var(--muted);font-size:12px}
+.hidden{display:none}
+ul{list-style:none}
+li.item{padding:8px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--surf2)}
+</style>
+</head>
+<body>
+<header>
+  <h1>🦙 llama.cpp Admin</h1>
+  <input id="key" type="password" placeholder="Admin-API-Key">
+  <button onclick="saveKey()">Speichern</button>
+  <span id="authState" class="muted"></span>
+</header>
+<nav>
+  <button class="on" data-tab="status" onclick="showTab('status',this)">Status</button>
+  <button data-tab="models" onclick="showTab('models',this)">Modelle</button>
+  <button data-tab="dl" onclick="showTab('dl',this)">Download &amp; Suche</button>
+</nav>
+<main>
+<section id="tab-status">
+  <div class="card"><h2>Server</h2><div id="serverInfo" class="muted">lade…</div></div>
+  <div class="card"><h2>Props</h2><pre id="props">–</pre></div>
+  <div class="card"><h2>/v1/models</h2><pre id="vmodels">–</pre></div>
+  <div class="card"><h2>Slots</h2><pre id="slots">–</pre></div>
+</section>
+<section id="tab-models" class="hidden">
+  <div class="card">
+    <h2>Modell-Dateien <span id="activeBadge"></span></h2>
+    <table><thead><tr><th>Datei</th><th>Größe</th><th>Notiz</th><th>Aktionen</th></tr></thead><tbody id="modelRows"></tbody></table>
+  </div>
+</section>
+<section id="tab-dl" class="hidden">
+  <div class="card">
+    <h2>Direkt-Download (URL)</h2>
+    <div class="row"><input id="dlUrl" placeholder="https://huggingface.co/.../resolve/main/modell.gguf"></div>
+    <div class="row"><input id="dlName" placeholder="Dateiname (optional, z. B. qwen2.5-7b-instruct-q4_k_m.gguf)"></div>
+    <button onclick="startDownload()">Download starten</button>
+  </div>
+  <div class="card">
+    <h2>HuggingFace-Suche (GGUF)</h2>
+    <div class="row"><input id="hfQ" placeholder="z. B. Qwen2.5 7B Instruct"><button onclick="hfSearch()">Suchen</button></div>
+    <ul id="hfResults"></ul>
+  </div>
+  <div class="card"><h2>Laufende Downloads</h2><ul id="dlList"></ul></div>
+</section>
+</main>
+<script>
+let KEY = sessionStorage.getItem('adminKey') || '';
+document.getElementById('key').value = KEY;
+function saveKey(){ KEY = document.getElementById('key').value; sessionStorage.setItem('adminKey', KEY); refreshAll(); }
+async function api(path, opts={}){
+  opts.headers = Object.assign({'X-Admin-Key': KEY, 'Content-Type':'application/json'}, opts.headers||{});
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(()=>({}));
+  if(r.status===401){ document.getElementById('authState').textContent='❌ Key ungültig'; throw new Error('unauthorized'); }
+  document.getElementById('authState').textContent='✓ verbunden';
+  if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
+  return j;
+}
+function showTab(id, btn){
+  document.querySelectorAll('main section').forEach(s=>s.classList.add('hidden'));
+  document.getElementById('tab-'+id).classList.remove('hidden');
+  document.querySelectorAll('nav button').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+}
+function fmtSize(b){ if(b==null)return'?'; const u=['B','KB','MB','GB']; let i=0; while(b>=1024&&i<3){b/=1024;i++;} return b.toFixed(1)+' '+u[i]; }
+async function loadStatus(){
+  try{
+    const s = await api('/api/status');
+    const h = s.endpoints.health||{};
+    const ok = h.status_code===200;
+    document.getElementById('serverInfo').innerHTML =
+      `<span class="badge ${ok?'ok':'err'}">${ok?'online':'offline / lädt'}</span>
+       <span class="muted">${s.llama_base_url}</span><br>
+       Aktives Modell: <b>${s.active_model||'–'}</b>`;
+    document.getElementById('props').textContent = JSON.stringify(s.endpoints.props?.body ?? s.endpoints.props, null, 2);
+    document.getElementById('vmodels').textContent = JSON.stringify(s.endpoints.models?.body ?? s.endpoints.models, null, 2);
+    document.getElementById('slots').textContent = JSON.stringify(s.endpoints.slots?.body ?? s.endpoints.slots, null, 2);
+  }catch(e){ document.getElementById('serverInfo').textContent = 'Fehler: '+e.message; }
+}
+async function loadModels(){
+  try{
+    const m = await api('/api/models');
+    document.getElementById('activeBadge').innerHTML = m.active_model ? `<span class="badge ok">aktiv: ${m.active_model}</span>` : '';
+    const tb = document.getElementById('modelRows'); tb.innerHTML='';
+    for(const f of m.files){
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${f.active?'⭐ ':''}${f.name}</td><td>${fmtSize(f.size)}</td>
+        <td><input value="${f.note||''}" onchange="setNote('${f.name}', this.value)" style="min-width:140px"></td>
+        <td>
+          <button onclick="activate('${f.name}')" ${f.active?'disabled':''}>Aktivieren</button>
+          <button class="ghost" onclick="renameM('${f.name}')">Umbenennen</button>
+          <button class="danger" onclick="delM('${f.name}')">Löschen</button>
+        </td>`;
+      tb.appendChild(tr);
+    }
+    if(!m.files.length) tb.innerHTML='<tr><td colspan="4" class="muted">Keine Modelle vorhanden – Tab „Download &amp; Suche“ nutzen.</td></tr>';
+  }catch(e){}
+}
+async function activate(n){ const r = await api('/api/models/activate',{method:'POST',body:JSON.stringify({name:n})}); alert(r.restarted?'Modell aktiviert, Server wurde neu gestartet.':('Aktiviert. '+(r.hint||r.restart_error||''))); loadModels(); }
+async function delM(n){ if(!confirm('Wirklich löschen: '+n+'?'))return; await api('/api/models/delete',{method:'POST',body:JSON.stringify({name:n})}); loadModels(); }
+async function renameM(n){ const nn = prompt('Neuer Dateiname:', n); if(!nn||nn===n)return; await api('/api/models/rename',{method:'POST',body:JSON.stringify({old:n,new:nn})}); loadModels(); }
+async function setNote(n,v){ await api('/api/models/note',{method:'POST',body:JSON.stringify({name:n,note:v})}); }
+async function startDownload(){
+  const url=document.getElementById('dlUrl').value.trim(); if(!url)return;
+  const filename=document.getElementById('dlName').value.trim();
+  await api('/api/download',{method:'POST',body:JSON.stringify({url,filename:filename||undefined})});
+  document.getElementById('dlUrl').value=''; document.getElementById('dlName').value=''; loadDownloads();
+}
+async function hfSearch(){
+  const q=document.getElementById('hfQ').value.trim(); if(!q)return;
+  const r = await api('/api/hf/search?q='+encodeURIComponent(q));
+  const ul=document.getElementById('hfResults'); ul.innerHTML='';
+  for(const it of r.results){
+    const li=document.createElement('li'); li.className='item';
+    li.innerHTML=`<b>${it.id}</b> <span class="muted">⬇ ${it.downloads||0} · ♥ ${it.likes||0}</span> <button class="ghost" onclick="hfFiles('${it.id}', this)">Dateien</button><div class="files"></div>`;
+    ul.appendChild(li);
+  }
+}
+async function hfFiles(repo, btn){
+  const box = btn.parentElement.querySelector('.files');
+  box.innerHTML='lade…';
+  const r = await api('/api/hf/files?repo='+encodeURIComponent(repo));
+  box.innerHTML = r.files.length ? '' : '<span class="muted">keine .gguf-Dateien</span>';
+  for(const f of r.files){
+    const d=document.createElement('div');
+    d.innerHTML=`<span class="muted">${f.name}</span> <button onclick="dlHF('${f.url}','${f.name}')">Download</button>`;
+    box.appendChild(d);
+  }
+}
+async function dlHF(url,name){ await api('/api/download',{method:'POST',body:JSON.stringify({url,filename:name})}); loadDownloads(); }
+async function loadDownloads(){
+  const r = await api('/api/downloads');
+  const ul=document.getElementById('dlList'); ul.innerHTML='';
+  for(const d of r.downloads.slice().reverse()){
+    const pct = d.total ? Math.round(100*d.downloaded/d.total) : null;
+    const li=document.createElement('li'); li.className='item';
+    li.innerHTML=`<b>${d.filename}</b> <span class="badge ${d.status==='done'?'ok':d.status==='error'?'err':''}">${d.status}</span>
+      <span class="muted">${fmtSize(d.downloaded)}${d.total?' / '+fmtSize(d.total):''}${d.error?' · '+d.error:''}</span>
+      <div class="bar"><i style="width:${pct??(d.status==='running'?30:100)}%"></i></div>`;
+    ul.appendChild(li);
+  }
+}
+function refreshAll(){ loadStatus(); loadModels(); loadDownloads(); }
+refreshAll();
+setInterval(()=>{ loadStatus(); loadDownloads(); }, 5000);
+</script>
+</body>
+</html>
