@@ -4,9 +4,9 @@ Portainer-Stack: **llama.cpp-Server** (GGUF, OpenAI-kompatible API, ohne WebUI) 
 
 ## Architektur
 
-| Service | Image | Port | Zweck |
+| Service | Image | Port (Host) | Zweck |
 |---|---|---|---|
-| `llamacpp` | `ghcr.io/ggml-org/llama.cpp:server` (CPU) / `:server-cuda` (NVIDIA) | 8080 | Inferenz-API `/v1/chat/completions` |
+| `llamacpp` | `ghcr.io/ggml-org/llama.cpp:server` (CPU) / `:server-cuda` (NVIDIA) | 8065 | Inferenz-API `/v1/chat/completions` |
 | `admin` | `ghcr.io/jbkunama1/hai.llama.cppportainer:latest` | 8066 | Admin-WebUI (Status, Modelle, Downloads) |
 
 Das Admin-Image wird bei jedem Push auf `main` per GitHub Action gebaut und nach **ghcr.io** gepusht (`:latest` + `:sha-<commit>`), Multi-Arch `amd64`/`arm64` (DietPi-tauglich).
@@ -26,7 +26,7 @@ Das Admin-Image wird bei jedem Push auf `main` per GitHub Action gebaut und nach
 7. API testen:
 
 ```bash
-curl http://<host>:8080/v1/chat/completions \
+curl http://<host>:8065/v1/chat/completions \
   -H "Authorization: Bearer $LLAMA_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"messages":[{"role":"user","content":"Hallo!"}]}'
