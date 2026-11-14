@@ -1,0 +1,14 @@
+name: Trufflehog
+on: [push, pull_request]
+jobs:
+  trufflehog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Run Trufflehog
+        uses: trufflehog/trufflehog-actions@main
+        with:
+          base: ""
+          head: "$((github.ref_name))"
+          extra_args: --only-verified
